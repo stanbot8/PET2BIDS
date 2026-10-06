@@ -6,8 +6,7 @@ on:
     inputs:
       debug_enabled:
         type: boolean
-        description: Run the build with tmate debugging enabled 
-          (https://github.com/marketplace/actions/debugging-with-tmate)
+        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
         required: false
         default: false
 
@@ -21,11 +20,11 @@ jobs:
     - name: Preview RTD
       uses: readthedocs/actions/preview@v1
       with:
-        project-slug: pet2bids
+        project-slug: "pet2bids"
     needs:
     - alpha_bridge_inputs
-    if: ${{ (success()) && needs.alpha_bridge_inputs.outputs.changed == 'true' 
-      }}
+    if: |-
+      ${{ (success()) && needs.alpha_bridge_inputs.outputs.changed == 'true' }}
   alpha_bridge_inputs:
     name: CI input check
     runs-on: ubuntu-latest
@@ -51,7 +50,7 @@ jobs:
         AB_REF: ${{ (github.event_name == 'schedule' || github.event_name == 
           'workflow_run') && 'refs/heads/main' || github.ref }}
         AB_WORKFLOW_DIGEST: 
-          788c56c26e2b723c7362062920714151a76d06022356d449092c55562a851d44
+          55ad5dbac388d2e0106901e8f7e8e2e5d695487ee6f8189df429b748c3c6c65b
         AB_EVENT: ${{ github.event_name }}
         AB_SCHEDULE: ${{ github.event.schedule || '' }}
         AB_VARIABLES: ${{ toJSON(vars) }}
