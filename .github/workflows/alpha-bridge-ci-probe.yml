@@ -1,26 +1,15 @@
-name: readthedocs/actions
+name: CI input probe
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      debug_enabled:
-        type: boolean
-        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
-        required: false
-        default: false
-
-permissions:
-  pull-requests: write
-
+      probe:
+        type: string
+        required: true
 jobs:
-  pull-request-links:
+  check:
     runs-on: ubuntu-latest
     steps:
-    - name: Preview RTD
-      uses: readthedocs/actions/preview@v1
-      with:
-        project-slug: "pet2bids"
+    - run: echo 'Changed inputs reached the consumer'
     needs:
     - alpha_bridge_inputs
     if: |-
@@ -44,15 +33,12 @@ jobs:
         GH_TOKEN: ${{ github.token }}
         AB_REPOSITORY: ${{ github.repository }}
         AB_RUN_ID: ${{ github.run_id }}
-        AB_HEAD_SHA: ${{ (github.event_name == 'schedule' || github.event_name 
-          == 'workflow_run') && 'b8e605c7df7aed02f052e29976fa41b0a64cb572' || 
-          github.sha }}
-        AB_REF: ${{ (github.event_name == 'schedule' || github.event_name == 
-          'workflow_run') && 'refs/heads/main' || github.ref }}
+        AB_HEAD_SHA: ${{ github.sha }}
+        AB_REF: ${{ github.ref }}
         AB_WORKFLOW_DIGEST: 
-          99b993b3cbc3d157c703a04fed71da4b73be4abdb22bedafcc0c0881f73c5eb6
-        AB_EVENT: ${{ github.event_name }}
-        AB_SCHEDULE: ${{ github.event.schedule || '' }}
+          aeb0c6e2caf9e7aa08ace6ecf5bf2a46ae50d577b223dd23f9d645eb0c1d6792
+        AB_EVENT: schedule
+        AB_SCHEDULE: alpha-bridge verification
         AB_VARIABLES: ${{ toJSON(vars) }}
         AB_INPUTS: ${{ toJSON(inputs) }}
         AB_WORKFLOW_RUN: ${{ toJSON(github.event.workflow_run) }}
