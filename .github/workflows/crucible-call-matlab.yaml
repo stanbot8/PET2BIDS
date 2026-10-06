@@ -1,30 +1,53 @@
-name: Codespell
-
+name: matlab
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-permissions:
-  contents: read
-
+  workflow_call:
 jobs:
-  codespell:
-    name: Check for spelling errors
-    runs-on: ubuntu-latest
+  Matlab-Unit-Tests:
+    runs-on: ${{ matrix.os }}
+
+    env:
+      TEST_ECAT_PATH: ${{ github.workspace 
+        }}/ecat_validation/synthetic_ecat_integer.v.gz
+      MATLAB_CODE_PATH: ${{ github.workspace }}/matlab/
+      METADATA_PATH: ${{ github.workspace }}/metadata/
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout Repo
+        uses: actions/checkout@v2
+
         with:
           ref: ${{ (github.event_name == 'schedule' || github.event_name == 
             'workflow_run') && 'b8e605c7df7aed02f052e29976fa41b0a64cb572' || 
             github.sha }}
-      - name: Annotate locations with typos
-        uses: codespell-project/codespell-problem-matcher@v1
-      - name: Codespell
-        uses: codespell-project/actions-codespell@v2
+      - name: Debug
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled
+          }}
+        timeout-minutes: 15
+        with:
+          limit-access-to-actor: true
+
+        # matlab not supported on MacOS!! at this time
+      - name: Perform setup-matlab
+        uses: matlab-actions/setup-matlab@v1
+        if: matrix.os == 'ubuntu-latest'
+
+        # Again only running this on ubuntu
+      - name: Add Matlab Code Folder to Path and Run Tests
+        uses: matlab-actions/run-command@v1
+        with:
+          command: |
+            addpath('${{ env.MATLAB_CODE_PATH }}');
+            addpath('${{ env.MATLAB_CODE_PATH }}/unit_tests');
+            addpath('${{ env.MATLAB_CODE_PATH }}/template_txt');
+            addpath('${{ env.TEST_ECAT_PATH }}');
+            addpath('${{ env.METADATA_PATH }}');
+            ecat2nii_test
+        if: matrix.os == 'ubuntu-latest'
     needs:
       - alpha_bridge_inputs
     if: |-
@@ -36,7 +59,7 @@ jobs:
       actions: read
       contents: read
     concurrency:
-      group: alpha-bridge-inputs-94f12d9590446caa-${{ github.workflow }}-${{ 
+      group: alpha-bridge-inputs-b04fd15fc771381c-${{ github.workflow }}-${{ 
         github.sha }}-${{ github.event.schedule || github.event_name }}
       cancel-in-progress: false
       queue: max
@@ -55,7 +78,7 @@ jobs:
           AB_REF: ${{ (github.event_name == 'schedule' || github.event_name == 
             'workflow_run') && 'refs/heads/main' || github.ref }}
           AB_WORKFLOW_DIGEST: 
-            7b48a02171e90f73bfb077ae97439a567d97bee616e2fcc1695142572e6988ff
+            ba80fda034c0156514099bc11fa4b8c40650b353a8428cae15c18b3c3f830e64
           AB_EVENT: ${{ github.event_name }}
           AB_SCHEDULE: ${{ github.event.schedule || '' }}
           AB_VARIABLES: ${{ toJSON(vars) }}

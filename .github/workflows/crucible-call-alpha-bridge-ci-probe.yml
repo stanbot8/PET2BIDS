@@ -1,26 +1,34 @@
-name: readthedocs/actions
+name: CI input probe
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      debug_enabled:
-        type: boolean
-        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
-        required: false
-        default: false
-
-permissions:
-  pull-requests: write
-
+      probe:
+        type: string
+        required: true
 jobs:
-  pull-request-links:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Preview RTD
-      uses: readthedocs/actions/preview@v1
-      with:
-        project-slug: "pet2bids"
+  nested0:
+    uses: ./.github/workflows/alpha-bridge-ci-consumer.yml
+    with:
+      probe: ${{ inputs.probe }}
+      slot: '0'
+    needs:
+    - alpha_bridge_inputs
+    if: |-
+      ${{ (success()) && needs.alpha_bridge_inputs.outputs.changed == 'true' }}
+  nested1:
+    uses: ./.github/workflows/alpha-bridge-ci-consumer.yml
+    with:
+      probe: ${{ inputs.probe }}
+      slot: '1'
+    needs:
+    - alpha_bridge_inputs
+    if: |-
+      ${{ (success()) && needs.alpha_bridge_inputs.outputs.changed == 'true' }}
+  nested2:
+    uses: ./.github/workflows/alpha-bridge-ci-consumer.yml
+    with:
+      probe: ${{ inputs.probe }}
+      slot: '2'
     needs:
     - alpha_bridge_inputs
     if: |-
@@ -32,7 +40,7 @@ jobs:
       actions: read
       contents: read
     concurrency:
-      group: alpha-bridge-inputs-071906e4051dd966-${{ github.workflow }}-${{ 
+      group: alpha-bridge-inputs-79967559e6c019b6-${{ github.workflow }}-${{ 
         github.sha }}-${{ github.event.schedule || github.event_name }}
       cancel-in-progress: false
       queue: max
@@ -45,15 +53,12 @@ jobs:
         GH_TOKEN: ${{ github.token }}
         AB_REPOSITORY: ${{ github.repository }}
         AB_RUN_ID: ${{ github.run_id }}
-        AB_HEAD_SHA: ${{ (github.event_name == 'schedule' || github.event_name 
-          == 'workflow_run') && 'b8e605c7df7aed02f052e29976fa41b0a64cb572' || 
-          github.sha }}
-        AB_REF: ${{ (github.event_name == 'schedule' || github.event_name == 
-          'workflow_run') && 'refs/heads/main' || github.ref }}
+        AB_HEAD_SHA: ${{ github.sha }}
+        AB_REF: ${{ github.ref }}
         AB_WORKFLOW_DIGEST: 
-          5fb018730c4a9a69e2ed808596543f1f8cbffbeab4d4172a0b0d4b1b5288fbaf
-        AB_EVENT: ${{ github.event_name }}
-        AB_SCHEDULE: ${{ github.event.schedule || '' }}
+          bd367cba8e8810e351ab7c5db42453bb5c3cdfbec864efe5672bbab3a0053290
+        AB_EVENT: schedule
+        AB_SCHEDULE: alpha-bridge verification
         AB_VARIABLES: ${{ toJSON(vars) }}
         AB_INPUTS: ${{ toJSON(inputs) }}
         AB_DEFAULT_PERMISSIONS: read

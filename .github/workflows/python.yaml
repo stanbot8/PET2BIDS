@@ -5,7 +5,6 @@ on:
     branches:
       - main
       - switch-phantoms-to-s3
-  workflow_call:
   workflow_dispatch:
     inputs:
       debug_enabled:
@@ -124,9 +123,10 @@ jobs:
       actions: read
       contents: read
     concurrency:
-      group: alpha-bridge-inputs-${{ github.workflow }}-${{ github.sha }}-${{ 
-        github.event.schedule || github.event_name }}
+      group: alpha-bridge-inputs-d90e20842292b9fc-${{ github.workflow }}-${{ 
+        github.sha }}-${{ github.event.schedule || github.event_name }}
       cancel-in-progress: false
+      queue: max
     outputs:
       changed: ${{ steps.identity.outputs.changed }}
     steps:
@@ -142,7 +142,7 @@ jobs:
           AB_REF: ${{ (github.event_name == 'schedule' || github.event_name == 
             'workflow_run') && 'refs/heads/main' || github.ref }}
           AB_WORKFLOW_DIGEST: 
-            c565f8ca43b64ba0d42a29b0f7305e5d24a8e6736128c97a447b4d581d7a0e43
+            01519c76bdec6836ca38172bc9deaa0f80c108ff04a0bbdb75e7c3799bab26f5
           AB_EVENT: ${{ github.event_name }}
           AB_SCHEDULE: ${{ github.event.schedule || '' }}
           AB_VARIABLES: ${{ toJSON(vars) }}

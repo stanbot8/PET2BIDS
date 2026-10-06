@@ -1,30 +1,105 @@
-name: Codespell
-
+name: python
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-permissions:
-  contents: read
-
+  workflow_call:
 jobs:
-  codespell:
-    name: Check for spelling errors
-    runs-on: ubuntu-latest
+  Python-Collect-Data-and-Test:
+    runs-on: ${{ matrix.os }}
+
+    env:
+      REAL_ECAT_TEST_PATH: ${{ github.workspace 
+        }}/OpenNeuroPET-Phantoms/sourcedata/SiemensHRRT-JHU/Hoffman.v
+      SMALLER_ECAT_PATH: ${{ github.workspace 
+        }}/ecat_validation/ECAT7_multiframe.v.gz
+      TEST_ECAT_PATH: ${{ github.workspace }}/ecat_validation/ECAT7_multiframe.v
+      OUTPUT_NIFTI_PATH: ${{ 
+        github.workspace}}/pypet2bids/tests/ECAT7_multiframe.nii
+      READ_ECAT_SAVE_AS_MATLAB: ${{ github.workspace 
+        }}/pypet2bids/tests/ECAT7_multiframe.mat
+      NIBABEL_READ_ECAT_SAVE_AS_MATLAB: ${{ github.workspace 
+        }}/pypet2bids/tests/ECAT7_multiframe.nibabel.mat
+      MATLAB_CODE_PATH: ${{ github.workspace }}/matlab/
+
+    strategy:
+      matrix:
+        os: [macOS-latest, ubuntu-latest]
+        python: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout Repo
+        uses: actions/checkout@v2
+
         with:
           ref: ${{ (github.event_name == 'schedule' || github.event_name == 
             'workflow_run') && 'b8e605c7df7aed02f052e29976fa41b0a64cb572' || 
             github.sha }}
-      - name: Annotate locations with typos
-        uses: codespell-project/codespell-problem-matcher@v1
-      - name: Codespell
-        uses: codespell-project/actions-codespell@v2
+      - name: Cache Phantoms
+        id: cache-phantoms
+        uses: actions/cache@v4
+        with:
+          path: US-sourced-OpenNeuroPET-Phantoms.zip
+          key: ${{ runner.os }}-phantoms
+
+      - name: Set up python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python }}
+          cache: 'pip'
+          cache-dependency-path: 'pypet2bids/pyproject.toml'
+
+      - name: Install UV
+        run: |-
+          curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+
+      - name: Install dependencies
+        run: |
+          cd pypet2bids
+          pip install -e .[dev]
+
+      - name: Collect ECAT and other phantoms
+        if: steps.cache-phantoms.outputs.cache-hit != 'true'
+        run: |-
+          wget https://openneuropet.s3.amazonaws.com/US-sourced-OpenNeuroPET-Phantoms.zip
+
+
+      - name: Decompress ECAT and other phantoms
+        run: |-
+          unzip US-sourced-OpenNeuroPET-Phantoms.zip
+
+
+      - name: Debug
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled
+          }}
+        timeout-minutes: 15
+        with:
+          limit-access-to-actor: true
+
+      - name: Test CLI --help
+        run: |
+          cd pypet2bids/
+          python3 -m pypet2bids.ecat_cli --help
+
+      - name: Test CLI Ecat Dump
+        run: |
+          cd pypet2bids/
+          python3 -m pypet2bids.ecat_cli ${{ env.REAL_ECAT_TEST_PATH }} --dump
+
+      # the larger real data file uses too much ram for the github runner, we use the small file for
+      # heavy io operations instead
+      - name: Unzip Test File(s)
+        run: |
+          gzip -d ${{ env.SMALLER_ECAT_PATH }}
+
+      - name: Test ecatread
+        run: |-
+          cd pypet2bids/ && python3 -m tests.test_ecatread
+
+
+      - name: Run All Other Python Tests w/ Pytest
+        run: |
+          cd pypet2bids
+          python -m pytest -k 'not write_pixel_data' -k 'not test_convert_pmod_to_blood' tests/
     needs:
       - alpha_bridge_inputs
     if: |-
@@ -36,7 +111,7 @@ jobs:
       actions: read
       contents: read
     concurrency:
-      group: alpha-bridge-inputs-94f12d9590446caa-${{ github.workflow }}-${{ 
+      group: alpha-bridge-inputs-d90e20842292b9fc-${{ github.workflow }}-${{ 
         github.sha }}-${{ github.event.schedule || github.event_name }}
       cancel-in-progress: false
       queue: max
@@ -55,7 +130,7 @@ jobs:
           AB_REF: ${{ (github.event_name == 'schedule' || github.event_name == 
             'workflow_run') && 'refs/heads/main' || github.ref }}
           AB_WORKFLOW_DIGEST: 
-            7b48a02171e90f73bfb077ae97439a567d97bee616e2fcc1695142572e6988ff
+            7218f86f1e0d32058a258f5f8cd5d294aa76ea0c68c454065c00f43889597032
           AB_EVENT: ${{ github.event_name }}
           AB_SCHEDULE: ${{ github.event.schedule || '' }}
           AB_VARIABLES: ${{ toJSON(vars) }}

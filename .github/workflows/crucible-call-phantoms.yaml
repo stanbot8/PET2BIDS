@@ -1,30 +1,174 @@
-name: Codespell
-
+name: phantoms
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-permissions:
-  contents: read
-
+  workflow_call:
 jobs:
-  codespell:
-    name: Check for spelling errors
-    runs-on: ubuntu-latest
+  phantoms:
+    runs-on: ${{ matrix.os }}
+    env:
+      DCM2NIIX_WIN_PATH: dcm2niix_win/dcm2niix.exe
+      MATLAB_CODE_PATH: ${{ github.workspace }}/matlab/
+      METADATA_PATH: ${{ github.workspace }}/metadata/
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+        python: ["3.12"]
+      fail-fast: false
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout Repo
+        uses: actions/checkout@v2
+
         with:
           ref: ${{ (github.event_name == 'schedule' || github.event_name == 
             'workflow_run') && 'b8e605c7df7aed02f052e29976fa41b0a64cb572' || 
             github.sha }}
-      - name: Annotate locations with typos
-        uses: codespell-project/codespell-problem-matcher@v1
-      - name: Codespell
-        uses: codespell-project/actions-codespell@v2
+      - name: Cache Node Posix
+        if: runner.os != 'Windows' && env.ACT != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ env.cache-name }}
+
+      - name: Cache Phantoms
+        if: env.ACT != 'true'
+        id: phantom-cache
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-phantoms
+        with:
+          path: PHANTOMS.zip
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ 
+            hashFiles('PHANTOMS.zip') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.cache-name }}-
+            ${{ runner.os }}-
+
+      - name: Set up python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install UV (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |-
+          curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+
+      - name: Install UV (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+          echo "$env:USERPROFILE\.cargo\bin" >> $env:GITHUB_PATH
+
+      - name: Install Python Dependencies
+        run: |
+          cd pypet2bids
+          pip install -e .[dev]
+
+      - name: Install UV Build Package
+        run: |
+          make installuv
+          make buildpackage
+          cd pypet2bids && uv pip install dist/pypet2bids-*.whl --system
+          dcm2niix4pet -h
+
+      - name: Set Up Node
+        uses: actions/setup-node@v4
+
+      - name: Install BIDS Validator
+        run: |-
+          npm install -g bids-validator@1.14.6
+
+
+      - name: Collect Phantoms (Linux/macOS)
+        if: steps.cache-phantoms.outputs.cache-hit != 'true' && !env.ACT && 
+          runner.os != 'Windows'
+        run: |-
+          wget -O PHANTOMS.zip https://openneuropet.s3.amazonaws.com/US-sourced-OpenNeuroPET-Phantoms.zip
+
+
+      - name: Collect Phantoms (Windows)
+        if: steps.cache-phantoms.outputs.cache-hit != 'true' && !env.ACT && 
+          runner.os == 'Windows'
+        run: |-
+          Invoke-WebRequest -Uri "https://openneuropet.s3.amazonaws.com/US-sourced-OpenNeuroPET-Phantoms.zip" -OutFile "PHANTOMS.zip"
+
+
+      - name: Debug
+        uses: mxschmitt/action-tmate@v3
+        if: github.event_name == 'workflow_dispatch' && inputs.debug_enabled
+        timeout-minutes: 15
+        with:
+          limit-access-to-actor: true
+
+      - name: Decompress phantoms windows
+        if: steps.cache-phantoms.outputs.cache-hit != 'true' && !env.ACT && 
+          runner.os == 'Windows'
+        run: |
+          powershell -command "Expand-Archive PHANTOMS.zip"
+          # Move contents from PHANTOMS/OpenNeuroPET-Phantoms/ to OpenNeuroPET-Phantoms/
+          mv PHANTOMS/OpenNeuroPET-Phantoms .
+
+      - name: Decompress phantoms posix
+        if: steps.cache-phantoms.outputs.cache-hit != 'true' && !env.ACT && 
+          runner.os != 'Windows'
+        run: |-
+          unzip PHANTOMS.zip
+
+
+      - name: Copy Conversion Scripts from Version Control (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p OpenNeuroPET-Phantoms/code/
+          cp scripts/matlab_conversions.m OpenNeuroPET-Phantoms/code/matlab_conversions.m
+          cp scripts/python_conversions.sh OpenNeuroPET-Phantoms/code/python_conversions.sh
+
+      - name: Copy Conversion Scripts from Version Control (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cp scripts/python_conversions.sh OpenNeuroPET-Phantoms/code/python_conversions.sh
+
+      - name: Run Python Conversion Script on Phantoms
+        run: |
+          cd OpenNeuroPET-Phantoms/code
+          bash python_conversions.sh
+
+      - name: SetupMatlab
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        uses: matlab-actions/setup-matlab@v1
+        # note matlab-actions/setup-matlab@v2 breaks this script, don't update unless you're forced to
+        #with:
+          #release: 'R2023a'
+          #cache: true
+
+      - name: Run Matlab Conversion Script on Phantoms
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        uses: matlab-actions/run-command@v1
+        with:
+          command: |
+            addpath('${{ github.workspace }}/OpenNeuroPET-Phantoms/code')
+            addpath('${{ env.MATLAB_CODE_PATH }}');
+            addpath('${{ env.MATLAB_CODE_PATH }}/unit_tests');
+            addpath('${{ env.MATLAB_CODE_PATH }}/template_txt');
+            addpath('${{ env.SMALLER_ECAT_PATH }}');
+            addpath('${{ env.METADATA_PATH }}');
+            matlab_conversions
+
+      - name: Check Parity
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          python scripts/compare_jsons.py OpenNeuroPET-Phantoms/python OpenNeuroPET-Phantoms/matlab
+
+      - name: Validate Python Conversion
+        run: |
+          bids-validator OpenNeuroPET-Phantoms/python
+
+
+      - name: Validate Matlab Conversion
+        if: ${{ matrix.os == 'ubuntu-latest'}}
+        run: |
+          bids-validator OpenNeuroPET-Phantoms/matlab
     needs:
       - alpha_bridge_inputs
     if: |-
@@ -36,7 +180,7 @@ jobs:
       actions: read
       contents: read
     concurrency:
-      group: alpha-bridge-inputs-94f12d9590446caa-${{ github.workflow }}-${{ 
+      group: alpha-bridge-inputs-be79f18a064aeb26-${{ github.workflow }}-${{ 
         github.sha }}-${{ github.event.schedule || github.event_name }}
       cancel-in-progress: false
       queue: max
@@ -55,7 +199,7 @@ jobs:
           AB_REF: ${{ (github.event_name == 'schedule' || github.event_name == 
             'workflow_run') && 'refs/heads/main' || github.ref }}
           AB_WORKFLOW_DIGEST: 
-            7b48a02171e90f73bfb077ae97439a567d97bee616e2fcc1695142572e6988ff
+            a475802e8ad7772321925d4c41b5526feeed60ec807f19a151db5949e7c74b97
           AB_EVENT: ${{ github.event_name }}
           AB_SCHEDULE: ${{ github.event.schedule || '' }}
           AB_VARIABLES: ${{ toJSON(vars) }}
